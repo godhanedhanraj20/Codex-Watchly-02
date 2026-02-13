@@ -1,0 +1,399 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Watchly Host</title>
+    <style>
+      body { font-family: Arial, sans-serif; max-width: 900px; margin: 1.5rem auto; padding: 1rem; }
+      .row { margin-bottom: 1rem; }
+      input, button { padding: 0.5rem; }
+      video { width: 100%; max-width: 800px; background: #000; }
+      #room-panel { display: none; }
+      .muted { color: #555; font-size: 0.9rem; }
+      button:disabled { opacity: 0.6; cursor: not-allowed; }
+    </style>
+    <script src="/public/app-config.js"></script>
+    <script src="https://apis.google.com/js/api.js"></script>
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+  </head>
+  <body>
+    <h1>Host Room</h1>
+
+    <div class="row">
+      <button id="create-room" type="button">Create Room</button>
+      <span id="room-status"></span>
+    </div>
+
+    <div id="room-panel">
+      <div class="row">
+        <strong>Invite Link:</strong>
+        <a id="invite-link" href="#"></a>
+      </div>
+
+      <div class="row">
+        <button id="choose-drive" type="button" disabled>Choose from Google Drive</button>
+        <span id="selected-drive-file" class="muted">No Drive file selected.</span>
+      </div>
+
+      <div class="row">
+        <button id="retry-validation" type="button" disabled>Retry Validation</button>
+        <span id="source-status" class="muted">No video source loaded yet.</span>
+      </div>
+
+      <div class="row">
+        <label for="video-url">Video URL (MP4):</label>
+        <input id="video-url" size="60" placeholder="https://example.com/video.mp4" />
+        <button id="load-video" type="button">Load Video</button>
+      </div>
+
+      <p class="muted">For guests to watch the selected file, please ensure it is shared publicly or with participants.</p>
+
+      <video id="video" controls></video>
+
+      <h3>Participants</h3>
+      <ul id="participants"></ul>
+    </div>
+
+    <script>
+      let roomId = null;
+      let participantTimer = null;
+      let sendTimer = null;
+      let pickerLoaded = false;
+      let isValidatingVideo = false;
+      let lastAttemptedSource = '';
+
+      const config = window.WATCHLY_CONFIG || {};
+      const googleApiKey = (config.googleApiKey || '').trim();
+      const googleClientId = (config.googleClientId || '').trim();
+
+      const video = document.getElementById('video');
+      const roomStatus = document.getElementById('room-status');
+      const selectedDriveFile = document.getElementById('selected-drive-file');
+      const chooseDriveButton = document.getElementById('choose-drive');
+      const loadVideoButton = document.getElementById('load-video');
+      const retryValidationButton = document.getElementById('retry-validation');
+      const createRoomButton = document.getElementById('create-room');
+      const sourceStatus = document.getElementById('source-status');
+
+      function setSourceStatus(message) {
+        sourceStatus.textContent = message;
+      }
+
+      function setVideoValidationBusyState(busy) {
+        isValidatingVideo = busy;
+        loadVideoButton.disabled = busy;
+        retryValidationButton.disabled = busy || !lastAttemptedSource;
+        chooseDriveButton.disabled = busy || !googleApiKey || !googleClientId;
+      }
+
+      function configureDrivePickerAvailability() {
+        if (!googleApiKey || !googleClientId) {
+          chooseDriveButton.disabled = true;
+          selectedDriveFile.textContent = 'Google Drive picker unavailable. Set GOOGLE_API_KEY and GOOGLE_CLIENT_ID on server.';
+          setSourceStatus('Google Drive picker disabled: missing server configuration.');
+          return;
+        }
+
+        chooseDriveButton.disabled = false;
+        setSourceStatus('Ready. Choose a source and validate before syncing.');
+      }
+
+      async function requireHost() {
+        try {
+          const res = await fetch('/me');
+          if (res.status === 401) {
+            roomStatus.textContent = 'Please sign in first. Redirecting...';
+            window.location.href = '/public/index.html';
+            return;
+          }
+
+          if (!res.ok) {
+            roomStatus.textContent = 'Unable to verify host session right now.';
+          }
+        } catch (error) {
+          roomStatus.textContent = 'Network error while checking login session.';
+        }
+      }
+
+      async function createRoom() {
+        roomStatus.textContent = 'Creating room...';
+        createRoomButton.disabled = true;
+
+        try {
+          const res = await fetch('/api/rooms', { method: 'POST' });
+
+          let data = {};
+          const contentType = (res.headers.get('content-type') || '').toLowerCase();
+          if (contentType.includes('application/json')) {
+            data = await res.json();
+          }
+
+          if (!res.ok) {
+            roomStatus.textContent = data.error || 'Failed to create room. Please sign in again.';
+            if (res.status === 401) {
+              setTimeout(() => {
+                window.location.href = '/public/index.html';
+              }, 700);
+            }
+            return;
+          }
+
+          roomId = data.id;
+          const invite = `${location.origin}/public/room.html?id=${roomId}`;
+          const inviteLink = document.getElementById('invite-link');
+          inviteLink.href = invite;
+          inviteLink.textContent = invite;
+          roomStatus.textContent = `Room ${roomId} created.`;
+          document.getElementById('room-panel').style.display = 'block';
+
+          if (participantTimer) clearInterval(participantTimer);
+          participantTimer = setInterval(refreshParticipants, 2000);
+          refreshParticipants();
+        } catch (error) {
+          roomStatus.textContent = 'Unable to create room right now. Please try again.';
+        } finally {
+          createRoomButton.disabled = false;
+        }
+      }
+
+      async function refreshParticipants() {
+        if (!roomId) return;
+        const res = await fetch(`/api/rooms/${roomId}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        const list = document.getElementById('participants');
+        list.innerHTML = '';
+        data.participants.forEach((p) => {
+          const li = document.createElement('li');
+          li.textContent = p.name;
+          list.appendChild(li);
+        });
+      }
+
+      function debounceSendPlayback() {
+        if (!roomId || isValidatingVideo) return;
+        if (sendTimer) clearTimeout(sendTimer);
+        sendTimer = setTimeout(sendPlayback, 200);
+      }
+
+      async function sendPlayback() {
+        if (!roomId) return;
+        await fetch(`/api/rooms/${roomId}/playback`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            time: video.currentTime,
+            playing: !video.paused,
+            videoUrl: document.getElementById('video-url').value.trim()
+          })
+        });
+      }
+
+      function normalizeVideoUrl(input) {
+        const raw = (input || '').trim();
+        if (!raw) return '';
+
+        const fileMatch = raw.match(/drive\.google\.com\/file\/d\/([^/]+)/i);
+        if (fileMatch?.[1]) {
+          return `https://drive.google.com/uc?export=download&id=${fileMatch[1]}`;
+        }
+
+        const openMatch = raw.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+        if (/drive\.google\.com/i.test(raw) && openMatch?.[1]) {
+          return `https://drive.google.com/uc?export=download&id=${openMatch[1]}`;
+        }
+
+        return raw;
+      }
+
+      function validateVideoSource(url) {
+        return new Promise((resolve, reject) => {
+          let done = false;
+
+          function cleanup() {
+            video.removeEventListener('loadedmetadata', onLoadedMetadata);
+            video.removeEventListener('error', onError);
+            clearTimeout(timeoutId);
+          }
+
+          function finishError(message) {
+            if (done) return;
+            done = true;
+            cleanup();
+            reject(new Error(message));
+          }
+
+          function onLoadedMetadata() {
+            if (done) return;
+            done = true;
+            cleanup();
+            resolve();
+          }
+
+          function onError() {
+            finishError('Selected video is not playable. Check Drive sharing permissions and video format.');
+          }
+
+          const timeoutId = setTimeout(() => {
+            finishError('Timed out while validating video. Check file access and try again.');
+          }, 10000);
+
+          video.addEventListener('loadedmetadata', onLoadedMetadata);
+          video.addEventListener('error', onError);
+          video.src = url;
+          video.load();
+        });
+      }
+
+      async function applyVideoSource(url, label) {
+        const normalizedUrl = normalizeVideoUrl(url);
+        if (!normalizedUrl) {
+          selectedDriveFile.textContent = 'Enter a valid video URL or select a Drive file.';
+          setSourceStatus('Validation failed: missing or invalid video URL.');
+          return;
+        }
+
+        lastAttemptedSource = normalizedUrl;
+        setVideoValidationBusyState(true);
+        selectedDriveFile.textContent = label
+          ? `Selected: ${label} (validating...)`
+          : 'Validating selected video...';
+        setSourceStatus('Validating video source...');
+
+        try {
+          await validateVideoSource(normalizedUrl);
+          document.getElementById('video-url').value = normalizedUrl;
+          selectedDriveFile.textContent = label
+            ? `Selected: ${label} (playable)`
+            : 'Video URL loaded and playable.';
+          setSourceStatus('Playable and synced to room.');
+          debounceSendPlayback();
+        } catch (error) {
+          selectedDriveFile.textContent = error.message;
+          setSourceStatus('Validation failed. Source not synced. You can retry validation.');
+        } finally {
+          setVideoValidationBusyState(false);
+        }
+      }
+
+      function loadVideo() {
+        const input = document.getElementById('video-url');
+        applyVideoSource(input.value, 'Manual URL');
+      }
+
+      function retryValidation() {
+        if (!lastAttemptedSource || isValidatingVideo) return;
+        applyVideoSource(lastAttemptedSource, 'Retry source');
+      }
+
+      function loadPickerApi() {
+        if (pickerLoaded) return Promise.resolve();
+
+        return new Promise((resolve, reject) => {
+          if (!window.gapi) {
+            reject(new Error('Google API library not loaded.'));
+            return;
+          }
+
+          window.gapi.load('picker', {
+            callback: () => {
+              pickerLoaded = true;
+              resolve();
+            },
+            onerror: () => reject(new Error('Failed to load Google Picker.'))
+          });
+        });
+      }
+
+      function getAccessToken() {
+        return new Promise((resolve, reject) => {
+          if (!window.google?.accounts?.oauth2) {
+            reject(new Error('Google Identity Services not loaded.'));
+            return;
+          }
+
+          const tokenClient = window.google.accounts.oauth2.initTokenClient({
+            client_id: googleClientId,
+            scope: 'https://www.googleapis.com/auth/drive.readonly',
+            callback: (response) => {
+              if (!response || response.error || !response.access_token) {
+                reject(new Error('Failed to get Google access token.'));
+                return;
+              }
+              resolve(response.access_token);
+            }
+          });
+
+          tokenClient.requestAccessToken({ prompt: '' });
+        });
+      }
+
+      function onPickerResult(data) {
+        const picker = window.google?.picker;
+        if (!picker || !data) return;
+
+        if (data.action === picker.Action.CANCEL) {
+          selectedDriveFile.textContent = 'Drive picker cancelled.';
+          return;
+        }
+
+        if (data.action !== picker.Action.PICKED || !data.docs || !data.docs.length) {
+          selectedDriveFile.textContent = 'No file selected from Drive.';
+          return;
+        }
+
+        const file = data.docs[0];
+        if (!file.id) {
+          selectedDriveFile.textContent = 'Selected Drive file is invalid.';
+          return;
+        }
+
+        const driveUrl = `https://drive.google.com/uc?export=download&id=${file.id}`;
+        applyVideoSource(driveUrl, file.name || file.id);
+      }
+
+      async function chooseFromDrive() {
+        if (isValidatingVideo) return;
+
+        if (chooseDriveButton.disabled) {
+          selectedDriveFile.textContent = 'Google Drive picker is disabled due to missing server config.';
+          return;
+        }
+
+        try {
+          await loadPickerApi();
+          const accessToken = await getAccessToken();
+
+          const view = new window.google.picker.DocsView(window.google.picker.ViewId.DOCS)
+            .setMimeTypes('video/mp4,video/webm,video/ogg')
+            .setIncludeFolders(false)
+            .setSelectFolderEnabled(false);
+
+          const picker = new window.google.picker.PickerBuilder()
+            .setDeveloperKey(googleApiKey)
+            .setOAuthToken(accessToken)
+            .addView(view)
+            .setTitle('Choose a video from Google Drive')
+            .setCallback(onPickerResult)
+            .build();
+
+          picker.setVisible(true);
+        } catch (error) {
+          selectedDriveFile.textContent = error.message || 'Unable to open Google Drive picker.';
+        }
+      }
+
+      document.getElementById('create-room').addEventListener('click', createRoom);
+      document.getElementById('load-video').addEventListener('click', loadVideo);
+      document.getElementById('choose-drive').addEventListener('click', chooseFromDrive);
+      document.getElementById('retry-validation').addEventListener('click', retryValidation);
+      video.addEventListener('play', debounceSendPlayback);
+      video.addEventListener('pause', debounceSendPlayback);
+      video.addEventListener('seeked', debounceSendPlayback);
+
+      configureDrivePickerAvailability();
+      requireHost();
+    </script>
+  </body>
+</html>
