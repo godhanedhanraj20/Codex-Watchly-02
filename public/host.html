@@ -53,28 +53,51 @@
       let participantTimer = null;
       let sendTimer = null;
       let pickerLoaded = false;
-      let googleApiKey = localStorage.getItem('AIzaSyCcNkodtnel_wwKMqDb_yo3_Sqn2mMQLr4') || '';
-      let googleClientId = localStorage.getItem(794045692078-pf759u3eccpo5jv10ftanflu05638mr8.apps.googleusercontent.com') || '';
+      let googleApiKey = localStorage.getItem('watchly_google_api_key') || '';
+      let googleClientId = localStorage.getItem('watchly_google_client_id') || '';
 
       const video = document.getElementById('video');
       const roomStatus = document.getElementById('room-status');
       const selectedDriveFile = document.getElementById('selected-drive-file');
 
       async function requireHost() {
-        const res = await fetch('/me');
-        if (res.status === 401) {
-          window.location.href = '/public/index.html';
-          return;
+        try {
+          const res = await fetch('/me');
+          if (res.status === 401) {
+            roomStatus.textContent = 'Please sign in first. Redirecting...';
+            window.location.href = '/public/index.html';
+            return;
+          }
+
+          if (!res.ok) {
+            roomStatus.textContent = 'Unable to verify host session right now.';
+          }
+        } catch (error) {
+          roomStatus.textContent = 'Network error while checking login session.';
         }
       }
 
       async function createRoom() {
-        const res = await fetch('/api/rooms', { method: 'POST' });
-        const data = await res.json();
-        if (!res.ok) {
-          roomStatus.textContent = data.error || 'Failed to create room.';
-          return;
-        }
+        roomStatus.textContent = 'Creating room...';
+
+        try {
+          const res = await fetch('/api/rooms', { method: 'POST' });
+
+          let data = {};
+          const contentType = (res.headers.get('content-type') || '').toLowerCase();
+          if (contentType.includes('application/json')) {
+            data = await res.json();
+          }
+
+          if (!res.ok) {
+            roomStatus.textContent = data.error || 'Failed to create room. Please sign in again.';
+            if (res.status === 401) {
+              setTimeout(() => {
+                window.location.href = '/public/index.html';
+              }, 700);
+            }
+            return;
+          }
 
         roomId = data.id;
         const invite = `${location.origin}/public/room.html?id=${roomId}`;
@@ -87,6 +110,9 @@
         if (participantTimer) clearInterval(participantTimer);
         participantTimer = setInterval(refreshParticipants, 2000);
         refreshParticipants();
+      } catch (error) {
+        roomStatus.textContent = 'Unable to create room right now. Please try again.';
+      }
       }
 
       async function refreshParticipants() {
