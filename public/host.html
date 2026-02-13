@@ -55,6 +55,7 @@
       let participantTimer = null;
       let sendTimer = null;
       let pickerLoaded = false;
+      let isValidatingVideo = false;
 
       const config = window.WATCHLY_CONFIG || {};
       const googleApiKey = (config.googleApiKey || '').trim();
@@ -64,6 +65,14 @@
       const roomStatus = document.getElementById('room-status');
       const selectedDriveFile = document.getElementById('selected-drive-file');
       const chooseDriveButton = document.getElementById('choose-drive');
+      const loadVideoButton = document.getElementById('load-video');
+      const createRoomButton = document.getElementById('create-room');
+
+      function setVideoValidationBusyState(busy) {
+        isValidatingVideo = busy;
+        loadVideoButton.disabled = busy;
+        chooseDriveButton.disabled = busy || !googleApiKey || !googleClientId;
+      }
 
       function configureDrivePickerAvailability() {
         if (!googleApiKey || !googleClientId) {
@@ -94,6 +103,7 @@
 
       async function createRoom() {
         roomStatus.textContent = 'Creating room...';
+        createRoomButton.disabled = true;
 
         try {
           const res = await fetch('/api/rooms', { method: 'POST' });
@@ -127,6 +137,8 @@
           refreshParticipants();
         } catch (error) {
           roomStatus.textContent = 'Unable to create room right now. Please try again.';
+        } finally {
+          createRoomButton.disabled = false;
         }
       }
 
@@ -180,13 +192,74 @@
         return raw;
       }
 
+      function validateVideoSource(url) {
+        return new Promise((resolve, reject) => {
+          let done = false;
+
+          function cleanup() {
+            video.removeEventListener('loadedmetadata', onLoadedMetadata);
+            video.removeEventListener('error', onError);
+            clearTimeout(timeoutId);
+          }
+
+          function finishError(message) {
+            if (done) return;
+            done = true;
+            cleanup();
+            reject(new Error(message));
+          }
+
+          function onLoadedMetadata() {
+            if (done) return;
+            done = true;
+            cleanup();
+            resolve();
+          }
+
+          function onError() {
+            finishError('Selected video is not playable. Check Drive sharing permissions and video format.');
+          }
+
+          const timeoutId = setTimeout(() => {
+            finishError('Timed out while validating video. Check file access and try again.');
+          }, 10000);
+
+          video.addEventListener('loadedmetadata', onLoadedMetadata);
+          video.addEventListener('error', onError);
+          video.src = url;
+          video.load();
+        });
+      }
+
+      async function applyVideoSource(url, label) {
+        const normalizedUrl = normalizeVideoUrl(url);
+        if (!normalizedUrl) {
+          selectedDriveFile.textContent = 'Enter a valid video URL or select a Drive file.';
+          return;
+        }
+
+        setVideoValidationBusyState(true);
+        selectedDriveFile.textContent = label
+          ? `Selected: ${label} (validating...)`
+          : 'Validating selected video...';
+
+        try {
+          await validateVideoSource(normalizedUrl);
+          document.getElementById('video-url').value = normalizedUrl;
+          selectedDriveFile.textContent = label
+            ? `Selected: ${label} (playable)`
+            : 'Video URL loaded and playable.';
+          debounceSendPlayback();
+        } catch (error) {
+          selectedDriveFile.textContent = error.message;
+        } finally {
+          setVideoValidationBusyState(false);
+        }
+      }
+
       function loadVideo() {
         const input = document.getElementById('video-url');
-        const url = normalizeVideoUrl(input.value);
-        input.value = url;
-        video.src = url;
-        video.load();
-        debounceSendPlayback();
+        applyVideoSource(input.value, 'Manual URL');
       }
 
       function loadPickerApi() {
@@ -252,16 +325,12 @@
         }
 
         const driveUrl = `https://drive.google.com/uc?export=download&id=${file.id}`;
-        const input = document.getElementById('video-url');
-        input.value = driveUrl;
-        selectedDriveFile.textContent = `Selected: ${file.name || file.id}`;
-
-        video.src = driveUrl;
-        video.load();
-        debounceSendPlayback();
+        applyVideoSource(driveUrl, file.name || file.id);
       }
 
       async function chooseFromDrive() {
+        if (isValidatingVideo) return;
+
         if (chooseDriveButton.disabled) {
           selectedDriveFile.textContent = 'Google Drive picker is disabled due to missing server config.';
           return;
