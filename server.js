@@ -54,6 +54,16 @@ app.use(passport.session());
 const authRouter = require('./auth');
 const { router: roomsRouter } = require('./rooms');
 
+app.get('/public/app-config.js', (_req, res) => {
+  const config = {
+    googleApiKey: process.env.GOOGLE_API_KEY || '',
+    googleClientId: process.env.GOOGLE_CLIENT_ID || ''
+  };
+
+  res.type('application/javascript');
+  res.send(`window.WATCHLY_CONFIG = ${JSON.stringify(config)};`);
+});
+
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/public', express.static(path.join(__dirname, 'public')));
 
