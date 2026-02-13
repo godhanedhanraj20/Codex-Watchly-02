@@ -62,6 +62,9 @@
       let pickerLoaded = false;
       let isValidatingVideo = false;
       let lastAttemptedSource = '';
+      let lastDriveCandidates = [];
+      let lastDriveFileLabel = '';
+      let lastDriveAccessToken = '';
 
       const config = window.WATCHLY_CONFIG || {};
       const googleApiKey = (config.googleApiKey || '').trim();
@@ -83,7 +86,7 @@
       function setVideoValidationBusyState(busy) {
         isValidatingVideo = busy;
         loadVideoButton.disabled = busy;
-        retryValidationButton.disabled = busy || !lastAttemptedSource;
+        retryValidationButton.disabled = busy || (!lastAttemptedSource && lastDriveCandidates.length === 0);
         chooseDriveButton.disabled = busy || !googleApiKey || !googleClientId;
       }
 
@@ -207,6 +210,13 @@
         return raw;
       }
 
+      function buildDriveCandidates(fileId) {
+        return [
+          `https://drive.google.com/uc?export=download&id=${fileId}`,
+          `https://drive.google.com/uc?export=view&id=${fileId}`
+        ];
+      }
+
       function validateVideoSource(url) {
         return new Promise((resolve, reject) => {
           let done = false;
@@ -232,11 +242,11 @@
           }
 
           function onError() {
-            finishError('Selected video is not playable. Check Drive sharing permissions and video format.');
+            finishError('Drive source failed to load in browser video player.');
           }
 
           const timeoutId = setTimeout(() => {
-            finishError('Timed out while validating video. Check file access and try again.');
+            finishError('Validation timed out while loading metadata.');
           }, 10000);
 
           video.addEventListener('loadedmetadata', onLoadedMetadata);
@@ -244,6 +254,77 @@
           video.src = url;
           video.load();
         });
+      }
+
+      async function fetchDriveFileMetadata(fileId) {
+        if (!lastDriveAccessToken) {
+          return null;
+        }
+
+        try {
+          const fields = 'id,name,mimeType,shared,permissions(type,role,allowFileDiscovery)';
+          const res = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?supportsAllDrives=true&fields=${encodeURIComponent(fields)}`, {
+            headers: {
+              Authorization: `Bearer ${lastDriveAccessToken}`
+            }
+          });
+
+          if (!res.ok) {
+            return null;
+          }
+
+          return await res.json();
+        } catch (_error) {
+          return null;
+        }
+      }
+
+      function hasGuestAccessiblePermission(metadata) {
+        if (!metadata || !Array.isArray(metadata.permissions)) {
+          return false;
+        }
+
+        return metadata.permissions.some((permission) => {
+          return permission.type === 'anyone' && (permission.role === 'reader' || permission.role === 'commenter');
+        });
+      }
+
+      async function applyVideoSourceCandidates(candidates, label, metadataHint) {
+        if (!Array.isArray(candidates) || candidates.length === 0) {
+          selectedDriveFile.textContent = 'No valid source candidates found.';
+          setSourceStatus('Validation failed: missing source candidates.');
+          return;
+        }
+
+        setVideoValidationBusyState(true);
+        selectedDriveFile.textContent = label ? `Selected: ${label} (validating...)` : 'Validating selected video...';
+        setSourceStatus('Validating video source...');
+
+        let lastErrorMessage = '';
+
+        for (const candidate of candidates) {
+          try {
+            await validateVideoSource(candidate);
+            document.getElementById('video-url').value = candidate;
+            selectedDriveFile.textContent = label ? `Selected: ${label} (playable)` : 'Video URL loaded and playable.';
+
+            if (metadataHint && !hasGuestAccessiblePermission(metadataHint)) {
+              setSourceStatus('Playable for host, but guests may fail unless file is shared with "Anyone with the link".');
+            } else {
+              setSourceStatus('Playable and synced to room.');
+            }
+
+            debounceSendPlayback();
+            setVideoValidationBusyState(false);
+            return;
+          } catch (error) {
+            lastErrorMessage = error.message;
+          }
+        }
+
+        selectedDriveFile.textContent = lastErrorMessage || 'Selected video is not playable.';
+        setSourceStatus('Validation failed for all source modes. Check Drive sharing/format and retry.');
+        setVideoValidationBusyState(false);
       }
 
       async function applyVideoSource(url, label) {
@@ -255,26 +336,9 @@
         }
 
         lastAttemptedSource = normalizedUrl;
-        setVideoValidationBusyState(true);
-        selectedDriveFile.textContent = label
-          ? `Selected: ${label} (validating...)`
-          : 'Validating selected video...';
-        setSourceStatus('Validating video source...');
-
-        try {
-          await validateVideoSource(normalizedUrl);
-          document.getElementById('video-url').value = normalizedUrl;
-          selectedDriveFile.textContent = label
-            ? `Selected: ${label} (playable)`
-            : 'Video URL loaded and playable.';
-          setSourceStatus('Playable and synced to room.');
-          debounceSendPlayback();
-        } catch (error) {
-          selectedDriveFile.textContent = error.message;
-          setSourceStatus('Validation failed. Source not synced. You can retry validation.');
-        } finally {
-          setVideoValidationBusyState(false);
-        }
+        lastDriveCandidates = [];
+        lastDriveFileLabel = '';
+        await applyVideoSourceCandidates([normalizedUrl], label);
       }
 
       function loadVideo() {
@@ -283,8 +347,16 @@
       }
 
       function retryValidation() {
-        if (!lastAttemptedSource || isValidatingVideo) return;
-        applyVideoSource(lastAttemptedSource, 'Retry source');
+        if (isValidatingVideo) return;
+
+        if (lastDriveCandidates.length > 0) {
+          applyVideoSourceCandidates(lastDriveCandidates, lastDriveFileLabel || 'Retry source');
+          return;
+        }
+
+        if (lastAttemptedSource) {
+          applyVideoSource(lastAttemptedSource, 'Retry source');
+        }
       }
 
       function loadPickerApi() {
@@ -329,7 +401,7 @@
         });
       }
 
-      function onPickerResult(data) {
+      async function onPickerResult(data) {
         const picker = window.google?.picker;
         if (!picker || !data) return;
 
@@ -349,8 +421,16 @@
           return;
         }
 
-        const driveUrl = `https://drive.google.com/uc?export=download&id=${file.id}`;
-        applyVideoSource(driveUrl, file.name || file.id);
+        lastDriveCandidates = buildDriveCandidates(file.id);
+        lastDriveFileLabel = file.name || file.id;
+        lastAttemptedSource = '';
+
+        const metadata = await fetchDriveFileMetadata(file.id);
+        if (metadata && !hasGuestAccessiblePermission(metadata)) {
+          setSourceStatus('Selected file may not be guest-accessible. Share as "Anyone with the link" for reliable playback.');
+        }
+
+        await applyVideoSourceCandidates(lastDriveCandidates, lastDriveFileLabel, metadata);
       }
 
       async function chooseFromDrive() {
@@ -364,6 +444,7 @@
         try {
           await loadPickerApi();
           const accessToken = await getAccessToken();
+          lastDriveAccessToken = accessToken;
 
           const view = new window.google.picker.DocsView(window.google.picker.ViewId.DOCS)
             .setMimeTypes('video/mp4,video/webm,video/ogg')
@@ -375,7 +456,9 @@
             .setOAuthToken(accessToken)
             .addView(view)
             .setTitle('Choose a video from Google Drive')
-            .setCallback(onPickerResult)
+            .setCallback((data) => {
+              onPickerResult(data);
+            })
             .build();
 
           picker.setVisible(true);
