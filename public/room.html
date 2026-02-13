@@ -22,6 +22,7 @@
 
     <div id="watch-panel">
       <p id="room-status"></p>
+      <p id="sync-status">Waiting for host video...</p>
       <video id="video" controls></video>
     </div>
 
@@ -30,8 +31,15 @@
       const roomId = params.get('id');
       const video = document.getElementById('video');
       let lastVideoUrl = '';
+      let lastFailedUrl = '';
+      let lastFailedAt = 0;
       let pollTimer = null;
       let rateTimer = null;
+      const FAILED_URL_RETRY_DELAY_MS = 15000;
+
+      function setSyncStatus(message) {
+        document.getElementById('sync-status').textContent = message;
+      }
 
       async function joinRoom() {
         if (!roomId) {
@@ -55,6 +63,7 @@
         document.getElementById('join-panel').style.display = 'none';
         document.getElementById('watch-panel').style.display = 'block';
         document.getElementById('room-status').textContent = `Joined room ${roomId}`;
+        setSyncStatus('Waiting for host video...');
 
         if (pollTimer) clearInterval(pollTimer);
         pollPlayback();
@@ -96,7 +105,13 @@
 
         const normalizedPlaybackUrl = normalizeVideoUrl(playback.videoUrl);
         if (normalizedPlaybackUrl && normalizedPlaybackUrl !== lastVideoUrl) {
+          if (normalizedPlaybackUrl === lastFailedUrl && Date.now() - lastFailedAt < FAILED_URL_RETRY_DELAY_MS) {
+            setSyncStatus('Previous source failed. Waiting before retrying...');
+            return;
+          }
+
           lastVideoUrl = normalizedPlaybackUrl;
+          setSyncStatus('Loading new source...');
           video.src = normalizedPlaybackUrl;
           video.load();
         }
@@ -118,6 +133,20 @@
           video.pause();
         }
       }
+
+      video.addEventListener('loadedmetadata', () => {
+        setSyncStatus('Synced and ready.');
+        if (video.src && video.src === lastFailedUrl) {
+          lastFailedUrl = '';
+          lastFailedAt = 0;
+        }
+      });
+
+      video.addEventListener('error', () => {
+        lastFailedUrl = lastVideoUrl;
+        lastFailedAt = Date.now();
+        setSyncStatus('Playback source failed to load. Check file sharing/format and wait for host update.');
+      });
 
       document.getElementById('join-btn').addEventListener('click', joinRoom);
     </script>

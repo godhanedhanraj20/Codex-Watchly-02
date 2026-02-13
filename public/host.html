@@ -37,6 +37,11 @@
       </div>
 
       <div class="row">
+        <button id="retry-validation" type="button" disabled>Retry Validation</button>
+        <span id="source-status" class="muted">No video source loaded yet.</span>
+      </div>
+
+      <div class="row">
         <label for="video-url">Video URL (MP4):</label>
         <input id="video-url" size="60" placeholder="https://example.com/video.mp4" />
         <button id="load-video" type="button">Load Video</button>
@@ -56,6 +61,7 @@
       let sendTimer = null;
       let pickerLoaded = false;
       let isValidatingVideo = false;
+      let lastAttemptedSource = '';
 
       const config = window.WATCHLY_CONFIG || {};
       const googleApiKey = (config.googleApiKey || '').trim();
@@ -66,11 +72,18 @@
       const selectedDriveFile = document.getElementById('selected-drive-file');
       const chooseDriveButton = document.getElementById('choose-drive');
       const loadVideoButton = document.getElementById('load-video');
+      const retryValidationButton = document.getElementById('retry-validation');
       const createRoomButton = document.getElementById('create-room');
+      const sourceStatus = document.getElementById('source-status');
+
+      function setSourceStatus(message) {
+        sourceStatus.textContent = message;
+      }
 
       function setVideoValidationBusyState(busy) {
         isValidatingVideo = busy;
         loadVideoButton.disabled = busy;
+        retryValidationButton.disabled = busy || !lastAttemptedSource;
         chooseDriveButton.disabled = busy || !googleApiKey || !googleClientId;
       }
 
@@ -78,10 +91,12 @@
         if (!googleApiKey || !googleClientId) {
           chooseDriveButton.disabled = true;
           selectedDriveFile.textContent = 'Google Drive picker unavailable. Set GOOGLE_API_KEY and GOOGLE_CLIENT_ID on server.';
+          setSourceStatus('Google Drive picker disabled: missing server configuration.');
           return;
         }
 
         chooseDriveButton.disabled = false;
+        setSourceStatus('Ready. Choose a source and validate before syncing.');
       }
 
       async function requireHost() {
@@ -157,7 +172,7 @@
       }
 
       function debounceSendPlayback() {
-        if (!roomId) return;
+        if (!roomId || isValidatingVideo) return;
         if (sendTimer) clearTimeout(sendTimer);
         sendTimer = setTimeout(sendPlayback, 200);
       }
@@ -235,13 +250,16 @@
         const normalizedUrl = normalizeVideoUrl(url);
         if (!normalizedUrl) {
           selectedDriveFile.textContent = 'Enter a valid video URL or select a Drive file.';
+          setSourceStatus('Validation failed: missing or invalid video URL.');
           return;
         }
 
+        lastAttemptedSource = normalizedUrl;
         setVideoValidationBusyState(true);
         selectedDriveFile.textContent = label
           ? `Selected: ${label} (validating...)`
           : 'Validating selected video...';
+        setSourceStatus('Validating video source...');
 
         try {
           await validateVideoSource(normalizedUrl);
@@ -249,9 +267,11 @@
           selectedDriveFile.textContent = label
             ? `Selected: ${label} (playable)`
             : 'Video URL loaded and playable.';
+          setSourceStatus('Playable and synced to room.');
           debounceSendPlayback();
         } catch (error) {
           selectedDriveFile.textContent = error.message;
+          setSourceStatus('Validation failed. Source not synced. You can retry validation.');
         } finally {
           setVideoValidationBusyState(false);
         }
@@ -260,6 +280,11 @@
       function loadVideo() {
         const input = document.getElementById('video-url');
         applyVideoSource(input.value, 'Manual URL');
+      }
+
+      function retryValidation() {
+        if (!lastAttemptedSource || isValidatingVideo) return;
+        applyVideoSource(lastAttemptedSource, 'Retry source');
       }
 
       function loadPickerApi() {
@@ -362,6 +387,7 @@
       document.getElementById('create-room').addEventListener('click', createRoom);
       document.getElementById('load-video').addEventListener('click', loadVideo);
       document.getElementById('choose-drive').addEventListener('click', chooseFromDrive);
+      document.getElementById('retry-validation').addEventListener('click', retryValidation);
       video.addEventListener('play', debounceSendPlayback);
       video.addEventListener('pause', debounceSendPlayback);
       video.addEventListener('seeked', debounceSendPlayback);

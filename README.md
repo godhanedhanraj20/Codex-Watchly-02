@@ -82,3 +82,6 @@ Open: `http://localhost:3000`
 - Rooms are stored in memory using a `Map`.
 - Restarting the server clears all rooms and participants.
 - This is intentionally a simple v1 (no Redis, no scaling, no WebSocket).
+- Host validates selected/manual video URLs before syncing playback state to guests.
+- If a Drive source fails validation, it is not synced to guests until validation succeeds.
+- For Drive playback, ensure files are shared appropriately; guest page now shows explicit source load failures and retries failed URLs after a short cooldown.
