@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Watchly V1</title>
+    <style>
+      body { font-family: Arial, sans-serif; max-width: 700px; margin: 2rem auto; padding: 1rem; }
+      .card { border: 1px solid #ddd; border-radius: 8px; padding: 1rem; }
+      a.button, button { display: inline-block; padding: 0.6rem 1rem; border-radius: 6px; text-decoration: none; border: 1px solid #ccc; cursor: pointer; }
+      #host-link { display: none; margin-left: 0.5rem; }
+      #logout-form { display: none; margin-top: 1rem; }
+    </style>
+  </head>
+  <body>
+    <h1>Watchly V1</h1>
+    <div class="card">
+      <p>One host creates a room, guests join, and playback stays in sync.</p>
+      <a class="button" href="/auth/google">Sign in with Google</a>
+      <a id="host-link" class="button" href="/public/host.html">Go to Host Page</a>
+      <form id="logout-form" method="post" action="/auth/logout">
+        <button type="submit">Logout</button>
+      </form>
+      <p id="status">Checking session...</p>
+    </div>
+
+    <script>
+      async function loadMe() {
+        try {
+          const res = await fetch('/me');
+          if (!res.ok) throw new Error('no session');
+          const me = await res.json();
+          document.getElementById('status').textContent = `Signed in as ${me.displayName || me.email}`;
+          document.getElementById('host-link').style.display = 'inline-block';
+          document.getElementById('logout-form').style.display = 'block';
+        } catch (err) {
+          document.getElementById('status').textContent = 'Not signed in yet. Use Google login.';
+        }
+      }
+
+      loadMe();
+    </script>
+  </body>
+</html>
