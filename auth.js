@@ -51,7 +51,9 @@ router.get('/auth/google', (req, res, next) => {
     return res.status(500).json({ error: 'Google OAuth not configured on server.' });
   }
 
-  return passport.authenticate('google', { scope: ['profile', 'email'] })(req, res, next);
+  return passport.authenticate('google', {
+    scope: ['profile', 'email', 'https://www.googleapis.com/auth/drive.readonly']
+  })(req, res, next);
 });
 
 router.get('/auth/google/callback', (req, res, next) => {
