@@ -69,6 +69,23 @@
         }, 3000);
       }
 
+      function normalizeVideoUrl(input) {
+        const raw = (input || '').trim();
+        if (!raw) return '';
+
+        const fileMatch = raw.match(/drive\.google\.com\/file\/d\/([^/]+)/i);
+        if (fileMatch?.[1]) {
+          return `https://drive.google.com/uc?export=download&id=${fileMatch[1]}`;
+        }
+
+        const openMatch = raw.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+        if (/drive\.google\.com/i.test(raw) && openMatch?.[1]) {
+          return `https://drive.google.com/uc?export=download&id=${openMatch[1]}`;
+        }
+
+        return raw;
+      }
+
       async function pollPlayback() {
         const res = await fetch(`/api/rooms/${roomId}/playback`);
         if (!res.ok) return;
@@ -77,9 +94,10 @@
         const playback = data.playback;
         if (!playback) return;
 
-        if (playback.videoUrl && playback.videoUrl !== lastVideoUrl) {
-          lastVideoUrl = playback.videoUrl;
-          video.src = playback.videoUrl;
+        const normalizedPlaybackUrl = normalizeVideoUrl(playback.videoUrl);
+        if (normalizedPlaybackUrl && normalizedPlaybackUrl !== lastVideoUrl) {
+          lastVideoUrl = normalizedPlaybackUrl;
+          video.src = normalizedPlaybackUrl;
           video.load();
         }
 

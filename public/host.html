@@ -108,8 +108,29 @@
         });
       }
 
+      function normalizeVideoUrl(input) {
+        const raw = (input || '').trim();
+        if (!raw) return '';
+
+        // Google Drive share links are HTML pages, not direct media files.
+        // Convert known share patterns into a direct file endpoint.
+        const fileMatch = raw.match(/drive\.google\.com\/file\/d\/([^/]+)/i);
+        if (fileMatch?.[1]) {
+          return `https://drive.google.com/uc?export=download&id=${fileMatch[1]}`;
+        }
+
+        const openMatch = raw.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+        if (/drive\.google\.com/i.test(raw) && openMatch?.[1]) {
+          return `https://drive.google.com/uc?export=download&id=${openMatch[1]}`;
+        }
+
+        return raw;
+      }
+
       function loadVideo() {
-        const url = document.getElementById('video-url').value.trim();
+        const input = document.getElementById('video-url');
+        const url = normalizeVideoUrl(input.value);
+        input.value = url;
         video.src = url;
         video.load();
         debounceSendPlayback();
