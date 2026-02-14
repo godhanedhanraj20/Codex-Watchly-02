@@ -83,5 +83,4 @@ Open: `http://localhost:3000`
 - Restarting the server clears all rooms and participants.
 - This is intentionally a simple v1 (no Redis, no scaling, no WebSocket).
 - Host validates selected/manual video URLs before syncing playback state to guests.
-- If a Drive source fails validation, it is not synced to guests until validation succeeds.
-- For Drive playback, ensure files are shared appropriately; guest page now shows explicit source load failures and retries failed URLs after a short cooldown.
+- Use a direct public MP4 URL for reliable playback; Google Drive links may fail in browser players.

@@ -52,7 +52,7 @@ router.get('/auth/google', (req, res, next) => {
   }
 
   return passport.authenticate('google', {
-    scope: ['profile', 'email', 'https://www.googleapis.com/auth/drive.readonly']
+    scope: ['profile', 'email']
   })(req, res, next);
 });
 

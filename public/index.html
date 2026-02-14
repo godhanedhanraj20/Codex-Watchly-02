@@ -1,27 +1,103 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" class="dark">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Watchly V1</title>
+    <title>Watchly - Host Sign-In</title>
     <style>
-      body { font-family: Arial, sans-serif; max-width: 700px; margin: 2rem auto; padding: 1rem; }
-      .card { border: 1px solid #ddd; border-radius: 8px; padding: 1rem; }
-      a.button, button { display: inline-block; padding: 0.6rem 1rem; border-radius: 6px; text-decoration: none; border: 1px solid #ccc; cursor: pointer; }
-      #host-link { display: none; margin-left: 0.5rem; }
-      #logout-form { display: none; margin-top: 1rem; }
+      :root {
+        --bg: #0a0a0f;
+        --card: #141425;
+        --text: #e8e8f2;
+        --muted: #a3a3bf;
+        --primary: #4b2bee;
+        --border: #292348;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+        background: radial-gradient(circle at 10% 10%, rgba(75, 43, 238, 0.2), transparent 40%), var(--bg);
+        color: var(--text);
+      }
+      .shell { max-width: 1080px; margin: 0 auto; padding: 1.25rem; }
+      header {
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 0.8rem 1rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        background: rgba(20,20,37,0.7);
+        backdrop-filter: blur(6px);
+      }
+      .brand { font-weight: 800; font-size: 1.15rem; }
+      .hero {
+        margin-top: 1.2rem;
+        border: 1px solid var(--border);
+        background: linear-gradient(180deg, rgba(75,43,238,0.12), rgba(20,20,37,0.92));
+        border-radius: 16px;
+        padding: 2rem;
+      }
+      h1 { margin: 0 0 0.75rem 0; font-size: 2rem; }
+      p { color: var(--muted); line-height: 1.45; }
+      .steps {
+        display: grid;
+        gap: 0.75rem;
+        margin: 1rem 0 1.35rem;
+      }
+      .step {
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 0.75rem;
+        background: rgba(10,10,15,0.5);
+      }
+      .actions { display: flex; flex-wrap: wrap; gap: 0.75rem; }
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 10px;
+        border: 1px solid var(--border);
+        padding: 0.7rem 1rem;
+        color: var(--text);
+        text-decoration: none;
+        font-weight: 600;
+        background: #1c1b30;
+        cursor: pointer;
+      }
+      .btn.primary { background: var(--primary); border-color: transparent; }
+      #host-link, #logout-form { display: none; }
+      #status { margin-top: 0.75rem; font-size: 0.95rem; }
     </style>
   </head>
   <body>
-    <h1>Watchly V1</h1>
-    <div class="card">
-      <p>One host creates a room, guests join, and playback stays in sync.</p>
-      <a class="button" href="/auth/google">Sign in with Google</a>
-      <a id="host-link" class="button" href="/public/host.html">Go to Host Page</a>
-      <form id="logout-form" method="post" action="/auth/logout">
-        <button type="submit">Logout</button>
-      </form>
-      <p id="status">Checking session...</p>
+    <div class="shell">
+      <header>
+        <div class="brand">Watchly</div>
+        <div style="color:#8f8fb0;font-size:.9rem;">Simple sync watch rooms</div>
+      </header>
+
+      <section class="hero">
+        <h1>Host Sign-In</h1>
+        <p>Sign in to create a room, paste a direct MP4 video URL, and watch together with friends in sync.</p>
+
+        <div class="steps">
+          <div class="step"><strong>1.</strong> Sign in as host.</div>
+          <div class="step"><strong>2.</strong> Create room + paste direct MP4 link.</div>
+          <div class="step"><strong>3.</strong> Share invite link. Guests join without login.</div>
+        </div>
+
+        <div class="actions">
+          <a class="btn primary" href="/auth/google">Sign in with Google</a>
+          <a id="host-link" class="btn" href="/public/host.html">Go to Host Room</a>
+          <form id="logout-form" method="post" action="/auth/logout">
+            <button type="submit" class="btn">Logout</button>
+          </form>
+        </div>
+        <p id="status">Checking session...</p>
+      </section>
     </div>
 
     <script>
@@ -31,10 +107,10 @@
           if (!res.ok) throw new Error('no session');
           const me = await res.json();
           document.getElementById('status').textContent = `Signed in as ${me.displayName || me.email}`;
-          document.getElementById('host-link').style.display = 'inline-block';
-          document.getElementById('logout-form').style.display = 'block';
-        } catch (err) {
-          document.getElementById('status').textContent = 'Not signed in yet. Use Google login.';
+          document.getElementById('host-link').style.display = 'inline-flex';
+          document.getElementById('logout-form').style.display = 'inline-flex';
+        } catch (_err) {
+          document.getElementById('status').textContent = 'Not signed in yet. Use Google sign-in.';
         }
       }
 
