@@ -1,51 +1,96 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" class="dark">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Watchly Host</title>
+    <title>Watchly - Host Room</title>
     <style>
-      body { font-family: Arial, sans-serif; max-width: 900px; margin: 1.5rem auto; padding: 1rem; }
-      .row { margin-bottom: 1rem; }
-      input, button { padding: 0.5rem; }
-      video { width: 100%; max-width: 800px; background: #000; }
+      :root {
+        --bg: #0a0a0f;
+        --panel: #131022;
+        --panel-2: #1a1731;
+        --text: #ecebfb;
+        --muted: #a9a6c7;
+        --primary: #4b2bee;
+        --border: #2d2752;
+        --ok: #10b981;
+        --warn: #f59e0b;
+      }
+      * { box-sizing: border-box; }
+      body { margin: 0; font-family: Inter, system-ui, sans-serif; background: var(--bg); color: var(--text); }
+      .layout { max-width: 1200px; margin: 0 auto; padding: 1rem; display: grid; gap: 1rem; }
+      .topbar {
+        display: flex; align-items: center; justify-content: space-between;
+        padding: .9rem 1rem; border: 1px solid var(--border); border-radius: 12px; background: rgba(19,16,34,.85);
+      }
+      .brand { font-weight: 800; font-size: 1.1rem; }
+      .grid { display: grid; grid-template-columns: 1.25fr 0.75fr; gap: 1rem; }
+      .card { border: 1px solid var(--border); border-radius: 14px; padding: 1rem; background: var(--panel); }
+      .section-title { margin: 0 0 .8rem; font-size: .88rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+      .row { margin-bottom: .85rem; }
+      .btn {
+        background: var(--primary); color: white; border: 0; border-radius: 10px; padding: .65rem .9rem;
+        font-weight: 700; cursor: pointer;
+      }
+      .btn.secondary { background: #221d3f; border: 1px solid var(--border); }
+      .btn:disabled { opacity: .55; cursor: not-allowed; }
+      input { width: 100%; border-radius: 10px; border: 1px solid var(--border); background: var(--panel-2); color: var(--text); padding: .65rem .75rem; }
+      label { font-size: .9rem; color: var(--muted); display: inline-block; margin-bottom: .45rem; }
+      a { color: #8f87ff; word-break: break-all; }
+      .status { color: var(--muted); font-size: .92rem; }
+      .status.ok { color: var(--ok); }
+      .status.warn { color: var(--warn); }
+      video { width: 100%; border-radius: 12px; border: 1px solid var(--border); background: #000; }
+      ul { margin: 0; padding-left: 1rem; color: var(--muted); }
+      .pill { display: inline-block; padding: .2rem .5rem; border: 1px solid var(--border); border-radius: 999px; font-size: .78rem; color: var(--muted); }
       #room-panel { display: none; }
-      .muted { color: #555; font-size: 0.9rem; }
-      button:disabled { opacity: 0.6; cursor: not-allowed; }
-      .warning { color: #8a4b00; }
+      @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
     </style>
   </head>
   <body>
-    <h1>Host Room</h1>
+    <div class="layout">
+      <header class="topbar">
+        <div class="brand">Watchly Host</div>
+        <div class="pill">Host controls playback</div>
+      </header>
 
-    <div class="row">
-      <button id="create-room" type="button">Create Room</button>
-      <span id="room-status"></span>
-    </div>
+      <div class="grid">
+        <main class="card">
+          <h2 class="section-title">Playback Control</h2>
 
-    <div id="room-panel">
-      <div class="row">
-        <strong>Invite Link:</strong>
-        <a id="invite-link" href="#"></a>
+          <div class="row">
+            <button id="create-room" type="button" class="btn">Create Room</button>
+            <span id="room-status" class="status"></span>
+          </div>
+
+          <div id="room-panel">
+            <div class="row">
+              <label>Invite Link</label>
+              <div><a id="invite-link" href="#"></a></div>
+            </div>
+
+            <div class="row">
+              <label for="video-url">Video URL (Direct public MP4)</label>
+              <input id="video-url" placeholder="https://example.com/movie.mp4" />
+            </div>
+
+            <div class="row" style="display:flex; gap:.6rem; flex-wrap:wrap;">
+              <button id="load-video" type="button" class="btn">Load Video</button>
+              <button id="retry-validation" type="button" class="btn secondary" disabled>Retry Validation</button>
+            </div>
+
+            <p class="status warn"><strong>Recommendation:</strong> use a direct public MP4 URL. Drive/share links may fail in browser video players.</p>
+            <p id="source-status" class="status">No video source loaded yet.</p>
+
+            <video id="video" controls></video>
+          </div>
+        </main>
+
+        <aside class="card">
+          <h2 class="section-title">Participants</h2>
+          <ul id="participants"></ul>
+        </aside>
       </div>
-
-      <div class="row">
-        <button id="retry-validation" type="button" disabled>Retry Validation</button>
-        <span id="source-status" class="muted">No video source loaded yet.</span>
-      </div>
-
-      <div class="row">
-        <label for="video-url">Video URL (MP4):</label>
-        <input id="video-url" size="60" placeholder="https://example.com/video.mp4" />
-        <button id="load-video" type="button">Load Video</button>
-      </div>
-
-      <p class="muted warning"><strong>Use a direct public MP4 link.</strong> Google Drive links may not stream reliably in browser video players.</p>
-
-      <video id="video" controls></video>
-
-      <h3>Participants</h3>
-      <ul id="participants"></ul>
     </div>
 
     <script>
@@ -62,8 +107,14 @@
       const loadVideoButton = document.getElementById('load-video');
       const createRoomButton = document.getElementById('create-room');
 
-      function setSourceStatus(message) {
+      function setSourceStatus(message, tone) {
         sourceStatus.textContent = message;
+        sourceStatus.className = `status${tone ? ` ${tone}` : ''}`;
+      }
+
+      function setRoomStatus(message, tone) {
+        roomStatus.textContent = message;
+        roomStatus.className = `status${tone ? ` ${tone}` : ''}`;
       }
 
       function setVideoValidationBusyState(busy) {
@@ -76,21 +127,21 @@
         try {
           const res = await fetch('/me');
           if (res.status === 401) {
-            roomStatus.textContent = 'Please sign in first. Redirecting...';
+            setRoomStatus('Please sign in first. Redirecting...', 'warn');
             window.location.href = '/public/index.html';
             return;
           }
 
           if (!res.ok) {
-            roomStatus.textContent = 'Unable to verify host session right now.';
+            setRoomStatus('Unable to verify host session right now.', 'warn');
           }
         } catch (_error) {
-          roomStatus.textContent = 'Network error while checking login session.';
+          setRoomStatus('Network error while checking login session.', 'warn');
         }
       }
 
       async function createRoom() {
-        roomStatus.textContent = 'Creating room...';
+        setRoomStatus('Creating room...');
         createRoomButton.disabled = true;
 
         try {
@@ -103,7 +154,7 @@
           }
 
           if (!res.ok) {
-            roomStatus.textContent = data.error || 'Failed to create room. Please sign in again.';
+            setRoomStatus(data.error || 'Failed to create room. Please sign in again.', 'warn');
             if (res.status === 401) {
               setTimeout(() => {
                 window.location.href = '/public/index.html';
@@ -117,14 +168,14 @@
           const inviteLink = document.getElementById('invite-link');
           inviteLink.href = invite;
           inviteLink.textContent = invite;
-          roomStatus.textContent = `Room ${roomId} created.`;
+          setRoomStatus(`Room ${roomId} created.`, 'ok');
           document.getElementById('room-panel').style.display = 'block';
 
           if (participantTimer) clearInterval(participantTimer);
           participantTimer = setInterval(refreshParticipants, 2000);
           refreshParticipants();
         } catch (_error) {
-          roomStatus.textContent = 'Unable to create room right now. Please try again.';
+          setRoomStatus('Unable to create room right now. Please try again.', 'warn');
         } finally {
           createRoomButton.disabled = false;
         }
@@ -137,6 +188,14 @@
         const data = await res.json();
         const list = document.getElementById('participants');
         list.innerHTML = '';
+
+        if (!data.participants.length) {
+          const li = document.createElement('li');
+          li.textContent = 'No guests yet. Share your invite link.';
+          list.appendChild(li);
+          return;
+        }
+
         data.participants.forEach((p) => {
           const li = document.createElement('li');
           li.textContent = p.name;
@@ -214,7 +273,7 @@
       async function applyVideoSource(url, label) {
         const trimmed = (url || '').trim();
         if (!trimmed) {
-          setSourceStatus('Validation failed: missing video URL.');
+          setSourceStatus('Validation failed: missing video URL.', 'warn');
           return;
         }
 
@@ -223,16 +282,16 @@
         setSourceStatus(label ? `${label}: validating...` : 'Validating selected video...');
 
         if (!looksLikeDirectMp4(trimmed)) {
-          setSourceStatus('This does not look like a direct MP4 link. Google Drive/share links may fail.');
+          setSourceStatus('This does not look like a direct MP4 link. Share links may fail.', 'warn');
         }
 
         try {
           await validateVideoSource(trimmed);
           document.getElementById('video-url').value = trimmed;
-          setSourceStatus('Playable and synced to room.');
+          setSourceStatus('Playable and synced to room.', 'ok');
           debounceSendPlayback();
         } catch (error) {
-          setSourceStatus(error.message);
+          setSourceStatus(error.message, 'warn');
         } finally {
           setVideoValidationBusyState(false);
         }

@@ -1,29 +1,95 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" class="dark">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Watchly Room</title>
+    <title>Watchly - Guest Room</title>
     <style>
-      body { font-family: Arial, sans-serif; max-width: 900px; margin: 1.5rem auto; padding: 1rem; }
-      video { width: 100%; max-width: 800px; background: #000; }
+      :root {
+        --bg: #0a0a0f;
+        --panel: #131022;
+        --panel-2: #191730;
+        --text: #ecebfb;
+        --muted: #a9a6c7;
+        --primary: #4b2bee;
+        --border: #2d2752;
+        --ok: #10b981;
+        --warn: #f59e0b;
+      }
+      * { box-sizing: border-box; }
+      body { margin: 0; font-family: Inter, system-ui, sans-serif; background: var(--bg); color: var(--text); }
+      .layout { min-height: 100vh; display: grid; grid-template-rows: auto 1fr; }
+      header {
+        border-bottom: 1px solid var(--border);
+        padding: .9rem 1rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        background: rgba(19,16,34,.9);
+      }
+      .brand { font-weight: 800; }
+      .shell { max-width: 1200px; margin: 0 auto; width: 100%; padding: 1rem; }
+      .join-card, .watch-card {
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 1rem;
+        background: var(--panel);
+      }
+      .join-card { max-width: 520px; margin: 6vh auto 0; }
+      label { display:block; color: var(--muted); margin-bottom:.5rem; font-size:.92rem; }
+      input { width: 100%; border-radius: 10px; border: 1px solid var(--border); background: var(--panel-2); color: var(--text); padding: .65rem .75rem; }
+      .btn {
+        margin-top: .7rem;
+        background: var(--primary);
+        color: #fff;
+        border: 0;
+        border-radius: 10px;
+        padding: .65rem .9rem;
+        font-weight: 700;
+        cursor: pointer;
+      }
+      .status { color: var(--muted); }
+      .watch-grid { display: grid; grid-template-columns: 1fr 300px; gap: 1rem; }
+      video { width: 100%; border-radius: 12px; border: 1px solid var(--border); background: #000; }
+      .panel { border:1px solid var(--border); border-radius:12px; padding:1rem; background: var(--panel-2); }
+      .pill { display:inline-flex; align-items:center; gap:.35rem; border:1px solid var(--border); padding:.25rem .55rem; border-radius:999px; font-size:.78rem; }
       #watch-panel { display: none; }
-      input, button { padding: 0.5rem; }
+      #join-status.warn, #sync-status.warn { color: var(--warn); }
+      #sync-status.ok { color: var(--ok); }
+      @media (max-width: 900px) { .watch-grid { grid-template-columns: 1fr; } }
     </style>
   </head>
   <body>
-    <h1>Guest Room</h1>
-    <div id="join-panel">
-      <p>Enter your name to join:</p>
-      <input id="guest-name" maxlength="32" placeholder="Your name" />
-      <button id="join-btn">Join Room</button>
-      <p id="join-status"></p>
-    </div>
+    <div class="layout">
+      <header>
+        <div class="brand">Watchly Guest</div>
+        <div class="pill">Sync with host</div>
+      </header>
 
-    <div id="watch-panel">
-      <p id="room-status"></p>
-      <p id="sync-status">Waiting for host video...</p>
-      <video id="video" controls></video>
+      <div class="shell">
+        <div id="join-panel" class="join-card">
+          <h1 style="margin-top:0;">Join Room</h1>
+          <p class="status">Enter your name to join this watch room.</p>
+          <label for="guest-name">Display name</label>
+          <input id="guest-name" maxlength="32" placeholder="Your name" />
+          <button id="join-btn" class="btn">Join Room</button>
+          <p id="join-status" class="status"></p>
+        </div>
+
+        <div id="watch-panel" class="watch-card">
+          <div class="watch-grid">
+            <div>
+              <p id="room-status" class="status"></p>
+              <p id="sync-status" class="status">Waiting for host video...</p>
+              <video id="video" controls></video>
+            </div>
+            <aside class="panel">
+              <h3 style="margin-top:0;">Room Info</h3>
+              <p class="status">Playback is controlled by host. This page auto-resyncs every 2 seconds.</p>
+            </aside>
+          </div>
+        </div>
+      </div>
     </div>
 
     <script>
@@ -37,13 +103,21 @@
       let rateTimer = null;
       const FAILED_URL_RETRY_DELAY_MS = 15000;
 
-      function setSyncStatus(message) {
-        document.getElementById('sync-status').textContent = message;
+      function setSyncStatus(message, tone) {
+        const el = document.getElementById('sync-status');
+        el.textContent = message;
+        el.className = `status${tone ? ` ${tone}` : ''}`;
+      }
+
+      function setJoinStatus(message, tone) {
+        const el = document.getElementById('join-status');
+        el.textContent = message;
+        el.className = `status${tone ? ` ${tone}` : ''}`;
       }
 
       async function joinRoom() {
         if (!roomId) {
-          document.getElementById('join-status').textContent = 'Missing room id.';
+          setJoinStatus('Missing room id.', 'warn');
           return;
         }
 
@@ -56,7 +130,7 @@
 
         const data = await res.json();
         if (!res.ok) {
-          document.getElementById('join-status').textContent = data.error || 'Failed to join room.';
+          setJoinStatus(data.error || 'Failed to join room.', 'warn');
           return;
         }
 
@@ -93,7 +167,7 @@
         const normalizedPlaybackUrl = normalizeVideoUrl(playback.videoUrl);
         if (normalizedPlaybackUrl && normalizedPlaybackUrl !== lastVideoUrl) {
           if (normalizedPlaybackUrl === lastFailedUrl && Date.now() - lastFailedAt < FAILED_URL_RETRY_DELAY_MS) {
-            setSyncStatus('Previous source failed. Waiting before retrying...');
+            setSyncStatus('Previous source failed. Waiting before retrying...', 'warn');
             return;
           }
 
@@ -122,7 +196,7 @@
       }
 
       video.addEventListener('loadedmetadata', () => {
-        setSyncStatus('Synced and ready.');
+        setSyncStatus('Synced and ready.', 'ok');
         if (video.src && video.src === lastFailedUrl) {
           lastFailedUrl = '';
           lastFailedAt = 0;
@@ -132,7 +206,7 @@
       video.addEventListener('error', () => {
         lastFailedUrl = lastVideoUrl;
         lastFailedAt = Date.now();
-        setSyncStatus('Playback source failed to load. Check file sharing/format and wait for host update.');
+        setSyncStatus('Playback source failed to load. Wait for host update.', 'warn');
       });
 
       document.getElementById('join-btn').addEventListener('click', joinRoom);
