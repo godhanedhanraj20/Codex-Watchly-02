@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Watchly Room</title>
+    <style>
+      body { font-family: Arial, sans-serif; max-width: 900px; margin: 1.5rem auto; padding: 1rem; }
+      video { width: 100%; max-width: 800px; background: #000; }
+      #watch-panel { display: none; }
+      input, button { padding: 0.5rem; }
+    </style>
+  </head>
+  <body>
+    <h1>Guest Room</h1>
+    <div id="join-panel">
+      <p>Enter your name to join:</p>
+      <input id="guest-name" maxlength="32" placeholder="Your name" />
+      <button id="join-btn">Join Room</button>
+      <p id="join-status"></p>
+    </div>
+
+    <div id="watch-panel">
+      <p id="room-status"></p>
+      <p id="sync-status">Waiting for host video...</p>
+      <video id="video" controls></video>
+    </div>
+
+    <script>
+      const params = new URLSearchParams(window.location.search);
+      const roomId = params.get('id');
+      const video = document.getElementById('video');
+      let lastVideoUrl = '';
+      let lastFailedUrl = '';
+      let lastFailedAt = 0;
+      let pollTimer = null;
+      let rateTimer = null;
+      const FAILED_URL_RETRY_DELAY_MS = 15000;
+
+      function setSyncStatus(message) {
+        document.getElementById('sync-status').textContent = message;
+      }
+
+      async function joinRoom() {
+        if (!roomId) {
+          document.getElementById('join-status').textContent = 'Missing room id.';
+          return;
+        }
+
+        const name = document.getElementById('guest-name').value.trim();
+        const res = await fetch(`/api/rooms/${roomId}/join`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name })
+        });
+
+        const data = await res.json();
+        if (!res.ok) {
+          document.getElementById('join-status').textContent = data.error || 'Failed to join room.';
+          return;
+        }
+
+        document.getElementById('join-panel').style.display = 'none';
+        document.getElementById('watch-panel').style.display = 'block';
+        document.getElementById('room-status').textContent = `Joined room ${roomId}`;
+        setSyncStatus('Waiting for host video...');
+
+        if (pollTimer) clearInterval(pollTimer);
+        pollPlayback();
+        pollTimer = setInterval(pollPlayback, 2000);
+      }
+
+      function applySoftRateAdjust(diff) {
+        if (rateTimer) clearTimeout(rateTimer);
+        video.playbackRate = diff > 0 ? 1.05 : 0.95;
+        rateTimer = setTimeout(() => {
+          video.playbackRate = 1;
+        }, 3000);
+      }
+
+      function normalizeVideoUrl(input) {
+        return (input || '').trim();
+      }
+
+      async function pollPlayback() {
+        const res = await fetch(`/api/rooms/${roomId}/playback`);
+        if (!res.ok) return;
+        const data = await res.json();
+
+        const playback = data.playback;
+        if (!playback) return;
+
+        const normalizedPlaybackUrl = normalizeVideoUrl(playback.videoUrl);
+        if (normalizedPlaybackUrl && normalizedPlaybackUrl !== lastVideoUrl) {
+          if (normalizedPlaybackUrl === lastFailedUrl && Date.now() - lastFailedAt < FAILED_URL_RETRY_DELAY_MS) {
+            setSyncStatus('Previous source failed. Waiting before retrying...');
+            return;
+          }
+
+          lastVideoUrl = normalizedPlaybackUrl;
+          setSyncStatus('Loading new source...');
+          video.src = normalizedPlaybackUrl;
+          video.load();
+        }
+
+        const localTime = video.currentTime || 0;
+        const diff = playback.time - localTime;
+
+        if (Math.abs(diff) > 1.5) {
+          video.currentTime = playback.time;
+        } else if (Math.abs(diff) > 0.5) {
+          applySoftRateAdjust(diff);
+        }
+
+        if (playback.playing && video.paused) {
+          video.play().catch(() => {});
+        }
+
+        if (!playback.playing && !video.paused) {
+          video.pause();
+        }
+      }
+
+      video.addEventListener('loadedmetadata', () => {
+        setSyncStatus('Synced and ready.');
+        if (video.src && video.src === lastFailedUrl) {
+          lastFailedUrl = '';
+          lastFailedAt = 0;
+        }
+      });
+
+      video.addEventListener('error', () => {
+        lastFailedUrl = lastVideoUrl;
+        lastFailedAt = Date.now();
+        setSyncStatus('Playback source failed to load. Check file sharing/format and wait for host update.');
+      });
+
+      document.getElementById('join-btn').addEventListener('click', joinRoom);
+    </script>
+  </body>
+</html>
